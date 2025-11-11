@@ -20,6 +20,8 @@ Key behaviors:
   rewritten paths are appended to the same file.
 - Safety: in ``--dry-run`` mode, the script prints what it would do without
   invoking the ZFS command.
+- Optional physical rewrite: with ``-P``/``--physical-rewrite``, use
+  ``zfs rewrite -P <file>`` to perform a physical rewrite.
 
 Notes:
 
@@ -29,6 +31,9 @@ Notes:
   renamed after being rewritten, deduplication is still guaranteed by the
   in-memory device/inode tracking during a single run; however, across runs
   the state file only prevents reprocessing of the recorded paths.
+- Physical rewrite (``-P``) requires the pool feature ``physical_rewrite`` to
+  be enabled. Do not use ``-P`` unless your pool supports it; see OpenZFS
+  documentation: https://openzfs.github.io/openzfs-docs/man/master/8/zfs-rewrite.8.html#physical_rewrite
 
 Disclaimer:
 
@@ -64,6 +69,9 @@ def parse_arguments() -> argparse.Namespace:
               rewritten; appended to as the run proceeds.
             - dry_run (bool): If True, only print actions without executing
               ``zfs rewrite``.
+            - physical_rewrite (bool): If True, use ``zfs rewrite -P`` for
+              physical rewrite; only use if your pool has the
+              ``physical_rewrite`` feature enabled.
     """
     parser = argparse.ArgumentParser(
         description="Script to rewrite ZFS datasets while avoiding duplicate rewrites of hardlinked files."
@@ -79,6 +87,12 @@ def parse_arguments() -> argparse.Namespace:
         "--rewritten-paths-file",
         help="Path to a file with paths that have already been rewritten, and where all rewritten paths will be stored",
         required=True,
+    )
+    parser.add_argument(
+        "-P",
+        "--physical-rewrite",
+        help="Use 'zfs rewrite -P' to perform a physical rewrite",
+        action="store_true",
     )
     parser.add_argument(
         "-d",
@@ -228,7 +242,10 @@ def collect_files(path: str) -> Set[str]:
 
 
 def rewrite_zfs_files(
-    files: Set[str], rewritten_paths_file: str, dry_run: bool = False
+    files: Set[str],
+    rewritten_paths_file: str,
+    dry_run: bool = False,
+    physical_rewrite: bool = False,
 ) -> None:
     """Rewrite the provided files using ``zfs rewrite``, with progress output.
 
@@ -243,6 +260,9 @@ def rewrite_zfs_files(
             rewritten file paths will be appended (one per line).
         dry_run (bool, optional): If True, only print intended actions without
             executing the ZFS command. Defaults to False.
+        physical_rewrite (bool, optional): If True, use ``zfs rewrite -P`` for
+            physical rewrite. Only enable if your ZFS pool supports the
+            ``physical_rewrite`` feature. Defaults to False.
 
     Raises:
         subprocess.CalledProcessError: Propagated if the ``zfs`` command fails
@@ -258,6 +278,9 @@ def rewrite_zfs_files(
           will persist already-processed paths.
         - Progress output includes a running counter and percentage based on
           the total number of candidate files.
+                - The ``-P``/``--physical-rewrite`` option requires pool feature
+                    ``physical_rewrite``. See OpenZFS docs:
+                    https://openzfs.github.io/openzfs-docs/man/master/8/zfs-rewrite.8.html#physical_rewrite
     """
     if not dry_run:
         rewritten_f = open(rewritten_paths_file, "a", encoding="utf-8")
@@ -290,8 +313,14 @@ def rewrite_zfs_files(
             else:
                 try:
                     print(f"{progress_str} {file_path}")
+
+                    command = ["zfs", "rewrite"]
+                    if physical_rewrite:
+                        command.append("-P")
+                    command.append(file_path)
+
                     subprocess.check_call(
-                        ["zfs", "rewrite", file_path],
+                        command,
                         shell=False,
                     )
                 except subprocess.CalledProcessError as e:
@@ -319,4 +348,9 @@ if __name__ == "__main__":
     args = parse_arguments()
     load_rewritten_paths(args.rewritten_paths_file)
     files = collect_files(args.path)
-    rewrite_zfs_files(files, args.rewritten_paths_file, dry_run=args.dry_run)
+    rewrite_zfs_files(
+        files,
+        args.rewritten_paths_file,
+        dry_run=args.dry_run,
+        physical_rewrite=args.physical_rewrite,
+    )

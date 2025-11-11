@@ -9,7 +9,7 @@ only one path for a given hardlinked group is rewritten. It also accepts a
 "state file" where already-processed paths are stored and loaded across runs,
 making the operation resumable and idempotent.
 
-## Key behaviors
+## Key features
 
 - Deduplication by device/inode: if multiple paths (hardlinks) point to the
   same inode, only the first encountered path is processed.
@@ -17,6 +17,8 @@ making the operation resumable and idempotent.
   rewritten paths are appended to the same file.
 - Dry run: in `--dry-run` mode, the script prints what it would do without
   invoking the ZFS command.
+- Optional physical rewrite: with `-P`/`--physical-rewrite`, use
+  `zfs rewrite -P <file>` to perform a physical rewrite.
 
 ## Notes
 
@@ -26,6 +28,8 @@ making the operation resumable and idempotent.
   renamed after being rewritten, deduplication is still guaranteed by the
   in-memory device/inode tracking during a single run; however, across runs the
   state file only prevents reprocessing of the recorded paths.
+ - Physical rewrite (`-P`) requires the pool feature `physical_rewrite` to be
+   enabled. Do not use `-P` unless your pool supports it; see [OpenZFS docs](https://openzfs.github.io/openzfs-docs/man/master/8/zfs-rewrite.8.html#physical_rewrite).
 
 ## Disclaimer
 
@@ -40,7 +44,7 @@ first.
 The script requires Python 3.11+ (for `|` union types) and the OpenZFS CLI
 available in your environment.
 
-Basic invocation:
+**Basic invocation:**
 
 ```bash
 ./zfs-rewrite.py \
@@ -51,6 +55,18 @@ Basic invocation:
 If the state file (`/path/to/rewritten.txt` in the example above) already
 exists, an existing run will be resumed. Otherwise, a fresh run will be started
 and an empty state file will be created.
+
+**Physical rewrite (requires `physical_rewrite` pool feature):**
+
+```bash
+./zfs-rewrite.py \
+  -p /pool/dataset/path \
+  -r /path/to/rewritten.txt \
+  -P
+```
+
+Only use `-P` if your pool supports the feature; otherwise the `zfs rewrite -P`
+command will fail.
 
 Notes on the state file:
 
